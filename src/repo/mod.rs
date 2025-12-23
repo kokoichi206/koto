@@ -1,5 +1,6 @@
 use crate::domain::todo::{Todo, TodoId};
 
+pub mod github;
 pub mod memory;
 
 pub trait TodoRepository {
