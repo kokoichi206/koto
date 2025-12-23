@@ -11,3 +11,5 @@ crossterm = "0.28"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
+octocrab = "0.44"
+tokio = { version = "1", features = ["rt-multi-thread"] }

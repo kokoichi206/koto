@@ -29,6 +29,7 @@ pub fn run<R: TodoRepository>(mut app: App<R>, tick_rate: Duration) -> Result<()
 
     let mut last_tick = Instant::now();
     let res = loop {
+        app.poll_sync();
         terminal.draw(|f| draw(f, &app))?;
 
         let timeout = tick_rate
@@ -72,6 +73,9 @@ fn handle_key<R: TodoRepository>(app: &mut App<R>, code: KeyCode) -> Result<bool
                 app.reload();
                 app.set_status("Reloaded");
             }
+            KeyCode::Char('g') => {
+                app.start_sync_github();
+            }
             _ => {}
         },
         InputMode::Editing => match code {
@@ -104,7 +108,7 @@ fn draw<R: TodoRepository>(f: &mut ratatui::Frame, app: &App<R>) {
         ])
         .split(size);
 
-    let header = render_header(app.todos.len(), app.todos.iter().filter(|t| t.done).count());
+    let header = render_header(app);
     f.render_widget(header, chunks[0]);
 
     let mut list_state = ListState::default();
@@ -119,13 +123,23 @@ fn draw<R: TodoRepository>(f: &mut ratatui::Frame, app: &App<R>) {
     f.render_widget(footer, chunks[2]);
 }
 
-fn render_header(total: usize, done: usize) -> Paragraph<'static> {
+fn render_header<R: TodoRepository>(app: &App<R>) -> Paragraph<'static> {
+    let total = app.todos.len();
+    let done = app.todos.iter().filter(|t| t.done).count();
     let summary = format!("Open: {} / All: {}", total.saturating_sub(done), total);
-    let line = Line::from(vec![
+    let mut spans = vec![
         Span::styled("koto - todo", Style::default().fg(Color::Cyan)),
         Span::raw("  |  "),
         Span::styled(summary, Style::default().fg(Color::Yellow)),
-    ]);
+    ];
+    if app.is_syncing {
+        spans.push(Span::raw("  |  "));
+        spans.push(Span::styled(
+            "⏳ Syncing GitHub...",
+            Style::default().fg(Color::Magenta),
+        ));
+    }
+    let line = Line::from(spans);
     Paragraph::new(line)
         .block(Block::default().title("Overview").borders(Borders::ALL))
         .wrap(Wrap { trim: true })
@@ -161,7 +175,7 @@ fn render_list(todos: &[Todo], selected: usize) -> List<'_> {
     List::new(items)
         .block(
             Block::default()
-                .title("Todos (j/k or up/down move ; a/n add ; Space/Enter toggle ; d delete ; c clear done)")
+                .title("Todos (j/k move ; a/n add ; Space/Enter toggle ; d delete ; c clear done ; g sync GitHub)")
                 .borders(Borders::ALL),
         )
         .highlight_symbol("➤ ")
