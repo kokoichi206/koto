@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use super::TodoRepository;
-use crate::domain::todo::{Todo, TodoId};
+use crate::domain::todo::{Priority, Todo, TodoId};
 
 #[derive(Default)]
 pub struct InMemoryTodoRepo {
@@ -21,10 +21,31 @@ impl TodoRepository for InMemoryTodoRepo {
         self.items.iter().cloned().collect()
     }
 
-    fn add(&mut self, title: String) -> Todo {
-        let todo = Todo::new(title);
+    fn add(
+        &mut self,
+        title: String,
+        priority: Priority,
+        due: Option<std::time::SystemTime>,
+    ) -> Todo {
+        let todo = Todo::with_meta(title, priority, due);
         self.items.push_back(todo.clone());
         todo
+    }
+
+    fn update_meta(
+        &mut self,
+        id: TodoId,
+        priority: Priority,
+        due: Option<std::time::SystemTime>,
+    ) -> Option<Todo> {
+        for todo in &mut self.items {
+            if todo.id == id {
+                todo.priority = priority;
+                todo.due = due;
+                return Some(todo.clone());
+            }
+        }
+        None
     }
 
     fn toggle(&mut self, id: TodoId) -> Option<Todo> {
