@@ -10,7 +10,7 @@ use anyhow::{Result, anyhow};
 use clap::Parser;
 
 use app::{App, GithubConfig};
-use domain::todo::Todo;
+use domain::todo::{Priority, Todo};
 use repo::memory::InMemoryTodoRepo;
 use repo::sqlite::SqliteTodoRepo;
 
@@ -56,10 +56,27 @@ fn main() -> Result<()> {
 }
 
 fn seed_todos() -> Vec<Todo> {
+    let now = std::time::SystemTime::now();
+    let days_from_now = |d: u64| {
+        now.checked_add(Duration::from_secs(d * 86_400))
+            .unwrap_or(now)
+    };
+
     vec![
-        Todo::new("Write documentation"),
-        Todo::new("Check PRs waiting for review"),
-        Todo::new("Draft release notes"),
+        Todo::with_meta("Hotfix production error", Priority::High, Some(now)),
+        Todo::with_meta("Update API spec", Priority::Medium, Some(days_from_now(3))),
+        Todo::with_meta("Draft release notes", Priority::Low, Some(days_from_now(7))),
+        Todo::with_meta("Refactor backlog grooming", Priority::Low, None),
+        Todo::with_meta(
+            "Prepare onboarding deck",
+            Priority::Medium,
+            Some(days_from_now(14)),
+        ),
+        Todo::with_meta(
+            "Security audit follow-up",
+            Priority::High,
+            Some(days_from_now(2)),
+        ),
     ]
 }
 

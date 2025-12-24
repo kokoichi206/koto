@@ -32,10 +32,6 @@ pub struct Todo {
 }
 
 impl Todo {
-    pub fn new(title: impl Into<String>) -> Self {
-        Self::with_meta(title, Priority::Medium, None)
-    }
-
     pub fn with_meta(
         title: impl Into<String>,
         priority: Priority,

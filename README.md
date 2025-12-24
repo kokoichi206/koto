@@ -4,6 +4,8 @@ koto is a fast and minimal TUI todo manager with optional GitHub pull-request at
 
 Named after the Japanese **事** *(koto)* — meaning "thing" or "action".
 
+![](./docs/imgs/demo.gif)
+
 ## Usage
 
 ```bash
