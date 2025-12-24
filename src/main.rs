@@ -12,6 +12,7 @@ use clap::Parser;
 use app::{App, GithubConfig};
 use domain::todo::Todo;
 use repo::memory::InMemoryTodoRepo;
+use repo::sqlite::SqliteTodoRepo;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "koto — minimal GitHub-aware todo TUI", long_about = None)]
@@ -23,14 +24,26 @@ struct Args {
     /// Start with demo tasks
     #[arg(long, default_value_t = false)]
     demo: bool,
+
+    /// Use in-memory store instead of SQLite
+    #[arg(long, default_value_t = false)]
+    memory: bool,
+
+    /// Path to SQLite DB file (default: OS data dir)
+    #[arg(long)]
+    db_path: Option<std::path::PathBuf>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let repo = if args.demo {
-        InMemoryTodoRepo::with_seed(seed_todos())
+    let repo: Box<dyn repo::TodoRepository> = if args.demo {
+        Box::new(InMemoryTodoRepo::with_seed(seed_todos()))
+    } else if args.memory {
+        Box::new(InMemoryTodoRepo::default())
+    } else if let Some(path) = args.db_path.as_ref() {
+        Box::new(SqliteTodoRepo::open(path)?)
     } else {
-        InMemoryTodoRepo::default()
+        Box::new(SqliteTodoRepo::open_default()?)
     };
 
     let github_cfg = build_github_config()?;

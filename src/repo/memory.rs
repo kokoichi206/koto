@@ -21,7 +21,7 @@ impl TodoRepository for InMemoryTodoRepo {
         self.items.iter().cloned().collect()
     }
 
-    fn add(&mut self, title: impl Into<String>) -> Todo {
+    fn add(&mut self, title: String) -> Todo {
         let todo = Todo::new(title);
         self.items.push_back(todo.clone());
         todo
