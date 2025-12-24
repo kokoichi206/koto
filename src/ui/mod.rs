@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Wrap},
 };
 
 use crate::app::{App, InputMode};
@@ -127,13 +127,13 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     let header = render_header(app);
     f.render_widget(header, chunks[0]);
 
-    let mut list_state = ListState::default();
+    let mut table_state = TableState::default();
     if !app.todos.is_empty() {
-        list_state.select(Some(app.selected));
+        table_state.select(Some(app.selected));
     }
 
-    let list = render_list(&app.todos, app.selected);
-    f.render_stateful_widget(list, chunks[1], &mut list_state);
+    let table = render_table(&app.todos);
+    f.render_stateful_widget(table, chunks[1], &mut table_state);
 
     let footer = render_footer(app);
     f.render_widget(footer, chunks[2]);
@@ -161,31 +161,16 @@ fn render_header(app: &App) -> Paragraph<'static> {
         .wrap(Wrap { trim: true })
 }
 
-fn render_list(todos: &[Todo], selected: usize) -> List<'_> {
-    let items: Vec<ListItem> = todos
+fn render_table(todos: &[Todo]) -> Table<'_> {
+    let rows: Vec<Row> = todos
         .iter()
-        .enumerate()
-        .map(|(idx, todo)| {
-            let symbol = if todo.done { "✔" } else { "•" };
+        .map(|todo| {
             let pri = render_priority(todo.priority);
             let (due_text, due_style) = render_due(todo.due);
+            let symbol = if todo.done { "✔" } else { "•" };
+            let title = format!("{symbol} {}", todo.title);
 
-            let mut line = vec![
-                Span::raw(format!(" {symbol} {}", todo.title)),
-                Span::raw("  "),
-                pri,
-                Span::raw("  "),
-                Span::styled(due_text, due_style),
-            ];
-            if todo.done {
-                line.push(Span::styled("  done", Style::default().fg(Color::Green)));
-            }
-
-            let style = if idx == selected {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-            } else if todo.done {
+            let row_style = if todo.done {
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::CROSSED_OUT)
@@ -193,17 +178,40 @@ fn render_list(todos: &[Todo], selected: usize) -> List<'_> {
                 Style::default()
             };
 
-            ListItem::new(Line::from(line)).style(style)
+            Row::new(vec![
+                Cell::from(pri),
+                Cell::from(due_text).style(due_style),
+                Cell::from(title),
+            ])
+            .style(row_style)
         })
         .collect();
 
-    List::new(items)
+    Table::new(
+        rows,
+        [
+            Constraint::Length(10),
+            Constraint::Length(22),
+            Constraint::Min(20),
+        ],
+    )
+        .header(
+            Row::new(vec!["Priority", "Due", "Title"]).style(
+                Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            ),
+        )
         .block(
             Block::default()
                 .title("Todos (j/k move ; a/n add ; Space/Enter toggle ; P cycle prio ; t set due ; [/ ] shift due ; D clear due ; d delete ; c clear done ; g sync GitHub)")
                 .borders(Borders::ALL),
         )
+        .column_spacing(2)
         .highlight_symbol("➤ ")
+        .row_highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+        )
 }
 
 fn render_footer(app: &App) -> Paragraph<'_> {
