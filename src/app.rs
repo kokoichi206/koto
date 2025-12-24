@@ -11,8 +11,8 @@ pub enum InputMode {
     Editing,
 }
 
-pub struct App<R: TodoRepository> {
-    repo: R,
+pub struct App {
+    repo: Box<dyn TodoRepository>,
     pub todos: Vec<Todo>,
     pub selected: usize,
     pub mode: InputMode,
@@ -36,8 +36,8 @@ pub struct SyncOutcome {
     pub result: Result<Vec<Pr>, String>,
 }
 
-impl<R: TodoRepository> App<R> {
-    pub fn new(repo: R, github: Option<GithubConfig>) -> Self {
+impl App {
+    pub fn new(repo: Box<dyn TodoRepository>, github: Option<GithubConfig>) -> Self {
         let todos = repo.all();
         Self {
             repo,

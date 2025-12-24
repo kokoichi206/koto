@@ -18,9 +18,8 @@ use ratatui::{
 
 use crate::app::{App, InputMode};
 use crate::domain::todo::Todo;
-use crate::repo::TodoRepository;
 
-pub fn run<R: TodoRepository>(mut app: App<R>, tick_rate: Duration) -> Result<()> {
+pub fn run(mut app: App, tick_rate: Duration) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -55,7 +54,7 @@ pub fn run<R: TodoRepository>(mut app: App<R>, tick_rate: Duration) -> Result<()
     res
 }
 
-fn handle_key<R: TodoRepository>(app: &mut App<R>, code: KeyCode) -> Result<bool> {
+fn handle_key(app: &mut App, code: KeyCode) -> Result<bool> {
     match app.mode {
         InputMode::Normal => match code {
             KeyCode::Char('q') => return Ok(true),
@@ -96,7 +95,7 @@ fn handle_key<R: TodoRepository>(app: &mut App<R>, code: KeyCode) -> Result<bool
     Ok(false)
 }
 
-fn draw<R: TodoRepository>(f: &mut ratatui::Frame, app: &App<R>) {
+fn draw(f: &mut ratatui::Frame, app: &App) {
     let size = f.area();
 
     let chunks = Layout::default()
@@ -123,7 +122,7 @@ fn draw<R: TodoRepository>(f: &mut ratatui::Frame, app: &App<R>) {
     f.render_widget(footer, chunks[2]);
 }
 
-fn render_header<R: TodoRepository>(app: &App<R>) -> Paragraph<'static> {
+fn render_header(app: &App) -> Paragraph<'static> {
     let total = app.todos.len();
     let done = app.todos.iter().filter(|t| t.done).count();
     let summary = format!("Open: {} / All: {}", total.saturating_sub(done), total);
@@ -181,7 +180,7 @@ fn render_list(todos: &[Todo], selected: usize) -> List<'_> {
         .highlight_symbol("➤ ")
 }
 
-fn render_footer<R: TodoRepository>(app: &App<R>) -> Paragraph<'_> {
+fn render_footer(app: &App) -> Paragraph<'_> {
     match app.mode {
         InputMode::Normal => {
             let msg = app
