@@ -616,10 +616,8 @@ fn to_pr(node: PullRequestNode, is_requested: bool, viewer_login: &str) -> Optio
 }
 
 fn merge_into(map: &mut HashMap<String, Pr>, mut pr: Pr) {
-    if let Some(existing) = map.get(&pr.pr_key) {
-        if existing.is_viewer_author {
-            pr.is_viewer_author = true;
-        }
+    if let Some(existing) = map.get(&pr.pr_key) && existing.is_viewer_author {
+        pr.is_viewer_author = true;
     }
     map.insert(pr.pr_key.clone(), pr);
 }

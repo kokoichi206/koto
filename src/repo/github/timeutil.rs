@@ -63,10 +63,10 @@ fn civil_from_days(days: i64) -> Option<(i32, u32, u32)> {
 }
 
 fn days_from_civil(year: i32, month: i32, day: i32) -> Option<i64> {
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return None;
     }
-    if day < 1 || day > 31 {
+    if !(1..=31).contains(&day) {
         return None;
     }
 
