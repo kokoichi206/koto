@@ -17,7 +17,8 @@ use ratatui::{
 };
 
 use crate::app::{App, InputMode};
-use crate::domain::todo::Todo;
+use crate::domain::todo::{Priority, Todo};
+use time::{OffsetDateTime, macros::format_description};
 
 pub fn run(mut app: App, tick_rate: Duration) -> Result<()> {
     enable_raw_mode()?;
@@ -58,6 +59,11 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool> {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+            KeyCode::Char('P') => app.cycle_priority_selected(),
+            KeyCode::Char(']') => app.shift_due_selected(1),
+            KeyCode::Char('[') => app.shift_due_selected(-1),
+            KeyCode::Char('D') => app.clear_due_selected(),
+            KeyCode::Char('t') => app.edit_due(),
             KeyCode::Char('a') | KeyCode::Char('n') => {
                 app.mode = InputMode::Editing;
                 app.input.clear();
@@ -82,6 +88,19 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool> {
                 app.set_status("Canceled");
             }
             KeyCode::Enter => app.add_todo(),
+            KeyCode::Backspace => {
+                app.input.pop();
+            }
+            KeyCode::Char(c) => app.input.push(c),
+            _ => {}
+        },
+        InputMode::EditingDue => match code {
+            KeyCode::Esc => {
+                app.mode = InputMode::Normal;
+                app.input.clear();
+                app.set_status("Canceled");
+            }
+            KeyCode::Enter => app.apply_due_edit(),
             KeyCode::Backspace => {
                 app.input.pop();
             }
@@ -148,7 +167,16 @@ fn render_list(todos: &[Todo], selected: usize) -> List<'_> {
         .enumerate()
         .map(|(idx, todo)| {
             let symbol = if todo.done { "✔" } else { "•" };
-            let mut line = vec![Span::raw(format!(" {symbol} {}", todo.title))];
+            let pri = render_priority(todo.priority);
+            let (due_text, due_style) = render_due(todo.due);
+
+            let mut line = vec![
+                Span::raw(format!(" {symbol} {}", todo.title)),
+                Span::raw("  "),
+                pri,
+                Span::raw("  "),
+                Span::styled(due_text, due_style),
+            ];
             if todo.done {
                 line.push(Span::styled("  done", Style::default().fg(Color::Green)));
             }
@@ -172,7 +200,7 @@ fn render_list(todos: &[Todo], selected: usize) -> List<'_> {
     List::new(items)
         .block(
             Block::default()
-                .title("Todos (j/k move ; a/n add ; Space/Enter toggle ; d delete ; c clear done ; g sync GitHub)")
+                .title("Todos (j/k move ; a/n add ; Space/Enter toggle ; P cycle prio ; t set due ; [/ ] shift due ; D clear due ; d delete ; c clear done ; g sync GitHub)")
                 .borders(Borders::ALL),
         )
         .highlight_symbol("➤ ")
@@ -195,7 +223,19 @@ fn render_footer(app: &App) -> Paragraph<'_> {
             ]);
             Paragraph::new(line).block(
                 Block::default()
-                    .title("Input (Enter to add / Esc to cancel)")
+                    .title("Input (e.g. \"buy milk p:1 d:+2\" / Enter to add / Esc to cancel)")
+                    .borders(Borders::ALL),
+            )
+        }
+        InputMode::EditingDue => {
+            let line = Line::from(vec![
+                Span::raw("Set due: "),
+                Span::styled(&app.input, Style::default().fg(Color::Yellow)),
+                Span::raw("█"),
+            ]);
+            Paragraph::new(line).block(
+                Block::default()
+                    .title("Set due (e.g. d:+3 / today / 2025-01-05 / Enter to confirm / Esc to cancel)")
                     .borders(Borders::ALL),
             )
         }
@@ -207,4 +247,36 @@ fn cleanup_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+fn render_priority(priority: Priority) -> Span<'static> {
+    match priority {
+        Priority::High => Span::styled("▲ High", Style::default().fg(Color::Red)),
+        Priority::Medium => Span::styled("△ Med", Style::default().fg(Color::Yellow)),
+        Priority::Low => Span::styled("▽ Low", Style::default().fg(Color::Blue)),
+    }
+}
+
+fn render_due(due: Option<std::time::SystemTime>) -> (String, Style) {
+    let fmt = format_description!("[year]-[month]-[day]");
+    match due {
+        None => ("No due".to_string(), Style::default().fg(Color::Gray)),
+        Some(t) => {
+            let odt: OffsetDateTime = t.into();
+            let date_str = odt.format(&fmt).unwrap_or_else(|_| "invalid".into());
+
+            // Compute calendar-day difference (UTC) to avoid today becoming tomorrow around midnight.
+            let today_date = OffsetDateTime::now_utc().date();
+            let due_date = odt.date();
+            let days_diff = (due_date.to_julian_day() - today_date.to_julian_day()) as i64;
+
+            let (label, color) = match days_diff {
+                d if d < 0 => (format!("{date_str} ({:>2}d overdue)", -d), Color::Red),
+                0 => (format!("{date_str} (today)"), Color::Yellow),
+                1 => (format!("{date_str} (tomorrow)"), Color::Yellow),
+                d => (format!("{date_str} (in {}d)", d), Color::Green),
+            };
+            (label, Style::default().fg(color))
+        }
+    }
 }

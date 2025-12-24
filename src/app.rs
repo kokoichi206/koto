@@ -1,14 +1,18 @@
-use crate::domain::todo::{Todo, TodoId};
+use crate::domain::todo::{Priority, Todo, TodoId};
 use crate::repo::TodoRepository;
 use crate::repo::github::model::Pr;
 use crate::usecase::attention;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
+
+use time::{Date, Duration, OffsetDateTime, macros::format_description};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
     Normal,
     Editing,
+    EditingDue,
 }
 
 pub struct App {
@@ -39,7 +43,7 @@ pub struct SyncOutcome {
 impl App {
     pub fn new(repo: Box<dyn TodoRepository>, github: Option<GithubConfig>) -> Self {
         let todos = repo.all();
-        Self {
+        let mut app = Self {
             repo,
             todos,
             selected: 0,
@@ -49,11 +53,14 @@ impl App {
             github,
             is_syncing: false,
             sync_rx: None,
-        }
+        };
+        app.sort_todos();
+        app
     }
 
     pub fn reload(&mut self) {
         self.todos = self.repo.all();
+        self.sort_todos();
         if self.selected >= self.todos.len() && !self.todos.is_empty() {
             self.selected = self.todos.len() - 1;
         }
@@ -69,6 +76,45 @@ impl App {
         if self.selected > 0 {
             self.selected -= 1;
         }
+    }
+
+    pub fn cycle_priority_selected(&mut self) {
+        let Some(id) = self.selected_id() else { return };
+        let current = self.todos[self.selected].priority;
+        let next = match current {
+            Priority::High => Priority::Medium,
+            Priority::Medium => Priority::Low,
+            Priority::Low => Priority::High,
+        };
+        self.repo
+            .update_meta(id, next, self.todos[self.selected].due);
+        self.reload();
+        self.set_status("Priority cycled");
+    }
+
+    pub fn shift_due_selected(&mut self, days: i64) {
+        let Some(id) = self.selected_id() else { return };
+        let current_due = self.todos[self.selected].due;
+        let new_due = match current_due {
+            Some(ts) => Some(shift_days(ts, days)),
+            None => Some(shift_days(SystemTime::now(), days.max(0))), // when none, start from today
+        };
+        self.repo
+            .update_meta(id, self.todos[self.selected].priority, new_due);
+        self.reload();
+        self.set_status(&format!(
+            "Due {} by {}d",
+            if days >= 0 { "moved" } else { "moved back" },
+            days.abs()
+        ));
+    }
+
+    pub fn clear_due_selected(&mut self) {
+        let Some(id) = self.selected_id() else { return };
+        self.repo
+            .update_meta(id, self.todos[self.selected].priority, None);
+        self.reload();
+        self.set_status("Due cleared");
     }
 
     fn selected_id(&self) -> Option<TodoId> {
@@ -95,12 +141,20 @@ impl App {
     }
 
     pub fn add_todo(&mut self) {
-        if self.input.trim().is_empty() {
+        let input = self.input.trim();
+        if input.is_empty() {
             self.set_status("Cannot add an empty task");
             return;
         }
-        let title = self.input.trim().to_owned();
-        self.repo.add(title);
+        let parse = parse_inline_meta(input);
+        let (title, priority, due) = match parse {
+            Ok(v) => v,
+            Err(msg) => {
+                self.set_status(&msg);
+                return;
+            }
+        };
+        self.repo.add(title, priority, due);
         self.input.clear();
         self.mode = InputMode::Normal;
         self.reload();
@@ -108,6 +162,36 @@ impl App {
             self.selected = self.todos.len() - 1;
         }
         self.set_status("Added");
+    }
+
+    pub fn edit_due(&mut self) {
+        self.mode = InputMode::EditingDue;
+        self.input.clear();
+        self.set_status("Enter due (e.g. d:+3 / today / 2025-01-05)");
+    }
+
+    pub fn apply_due_edit(&mut self) {
+        let val = self.input.trim();
+        if val.is_empty() {
+            self.set_status("Input is empty");
+            return;
+        }
+        let Some(id) = self.selected_id() else {
+            self.set_status("No task selected");
+            return;
+        };
+        match parse_due_token(val) {
+            Ok(Some(due)) => {
+                let pri = self.todos[self.selected].priority;
+                self.repo.update_meta(id, pri, Some(due));
+                self.mode = InputMode::Normal;
+                self.input.clear();
+                self.reload();
+                self.set_status("Due date updated");
+            }
+            Ok(None) => self.set_status("Could not parse due token"),
+            Err(e) => self.set_status(&e),
+        }
     }
 
     pub fn clear_done(&mut self) {
@@ -166,7 +250,8 @@ impl App {
                                     "{}/{}#{} by {}: {}",
                                     pr.owner, pr.repo, pr.number, pr.author, pr.title
                                 );
-                                self.repo.add(title);
+                                let (priority, due) = classify_pr_task(&pr);
+                                self.repo.add(title, priority, due);
                                 added += 1;
                             }
                         }
@@ -185,5 +270,129 @@ impl App {
                 self.set_status("GitHub sync channel closed");
             }
         }
+    }
+
+    fn sort_todos(&mut self) {
+        self.todos.sort_by(|a, b| {
+            // done items go last
+            if a.done != b.done {
+                return a.done.cmp(&b.done);
+            }
+            // earliest due first; None goes last
+            match (&a.due, &b.due) {
+                (Some(ad), Some(bd)) => {
+                    if ad != bd {
+                        return ad.cmp(bd);
+                    }
+                }
+                (Some(_), None) => return std::cmp::Ordering::Less,
+                (None, Some(_)) => return std::cmp::Ordering::Greater,
+                (None, None) => {}
+            }
+            // priority high(1) < med(2) < low(3)
+            if a.priority != b.priority {
+                return a.priority.cmp(&b.priority);
+            }
+            a.created_at.cmp(&b.created_at)
+        });
+    }
+}
+
+fn parse_inline_meta(input: &str) -> Result<(String, Priority, Option<SystemTime>), String> {
+    let mut title_parts: Vec<&str> = Vec::new();
+    let mut priority = Priority::Medium;
+    let mut due: Option<SystemTime> = None;
+
+    for raw in input.split_whitespace() {
+        let lower = raw.to_lowercase();
+        if let Some(p) = parse_priority_token(&lower) {
+            priority = p;
+            continue;
+        }
+        if let Some(d) = parse_due_token(&lower)? {
+            due = Some(d);
+            continue;
+        }
+        title_parts.push(raw);
+    }
+
+    let title = title_parts.join(" ").trim().to_string();
+    if title.is_empty() {
+        return Err("Title is empty".into());
+    }
+    Ok((title, priority, due))
+}
+
+fn parse_priority_token(token: &str) -> Option<Priority> {
+    match token {
+        "p1" | "p:1" | "!" | "high" | "h" | "hi" => Some(Priority::High),
+        "p3" | "p:3" | "!!!" | "low" | "l" => Some(Priority::Low),
+        "p2" | "p:2" | "!!" | "m" | "med" | "mid" | "medium" => Some(Priority::Medium),
+        _ => None,
+    }
+}
+
+fn parse_due_token(token: &str) -> Result<Option<SystemTime>, String> {
+    let token = token
+        .strip_prefix("d:")
+        .or_else(|| token.strip_prefix("due:"))
+        .unwrap_or(token);
+
+    if token == "today" || token == "tod" || token == "t" {
+        return Ok(Some(end_of_day(OffsetDateTime::now_utc().date())));
+    }
+    if token == "tomorrow" || token == "tm" || token == "next" {
+        let date = OffsetDateTime::now_utc()
+            .date()
+            .saturating_add(time::Duration::days(1));
+        return Ok(Some(end_of_day(date)));
+    }
+    if let Some(rest) = token.strip_prefix('+') {
+        let days: i64 = rest
+            .parse()
+            .map_err(|_| "Relative due must be a number (e.g. +3)".to_string())?;
+        let date = OffsetDateTime::now_utc()
+            .date()
+            .saturating_add(time::Duration::days(days));
+        return Ok(Some(end_of_day(date)));
+    }
+
+    if token.len() == 10 && token.chars().nth(4) == Some('-') {
+        let fmt = format_description!("[year]-[month]-[day]");
+        let date =
+            Date::parse(token, &fmt).map_err(|_| "Use YYYY-MM-DD for due date".to_string())?;
+        return Ok(Some(end_of_day(date)));
+    }
+
+    Ok(None)
+}
+
+fn end_of_day(date: Date) -> SystemTime {
+    let dt = date
+        .with_hms(23, 59, 59)
+        .unwrap_or_else(|_| date.with_hms(0, 0, 0).unwrap());
+    let odt = dt.assume_utc();
+    let ts = odt.unix_timestamp();
+    UNIX_EPOCH + StdDuration::from_secs(ts.max(0) as u64)
+}
+
+fn shift_days(time: SystemTime, days: i64) -> SystemTime {
+    let odt: OffsetDateTime = time.into();
+    let shifted = odt.date().saturating_add(time::Duration::days(days));
+    end_of_day(shifted)
+}
+
+fn classify_pr_task(pr: &Pr) -> (Priority, Option<SystemTime>) {
+    let is_renovate = pr.author.eq_ignore_ascii_case("renovate")
+        || pr.author.eq_ignore_ascii_case("renovate-bot")
+        || pr.author.eq_ignore_ascii_case("renovate[bot]");
+    let today = OffsetDateTime::now_utc().date();
+    if is_renovate {
+        (
+            Priority::Medium,
+            Some(end_of_day(today.saturating_add(Duration::days(30)))),
+        )
+    } else {
+        (Priority::High, Some(end_of_day(today)))
     }
 }

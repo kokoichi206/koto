@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
 use super::TodoRepository;
-use crate::domain::todo::{Todo, TodoId};
+use crate::domain::todo::{Priority, Todo, TodoId};
 
 pub struct SqliteTodoRepo {
     conn: Connection,
@@ -35,7 +35,7 @@ impl TodoRepository for SqliteTodoRepo {
     fn all(&self) -> Vec<Todo> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, title, done, created_at FROM todos ORDER BY created_at ASC")
+            .prepare("SELECT id, title, done, priority, due, created_at FROM todos ORDER BY created_at ASC")
             .expect("failed to prepare select");
         let iter = stmt
             .query_map([], row_to_todo)
@@ -43,20 +43,45 @@ impl TodoRepository for SqliteTodoRepo {
         iter.map(|r| r.expect("failed to decode todo")).collect()
     }
 
-    fn add(&mut self, title: String) -> Todo {
-        let todo = Todo::new(title);
+    fn add(
+        &mut self,
+        title: String,
+        priority: Priority,
+        due: Option<std::time::SystemTime>,
+    ) -> Todo {
+        let todo = Todo::with_meta(title, priority, due);
         self.conn
             .execute(
-                "INSERT INTO todos (id, title, done, created_at) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO todos (id, title, done, priority, due, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     todo.id.to_string(),
                     todo.title,
                     todo.done as i32,
+                    todo.priority as i32,
+                    todo.due.map(to_unix),
                     to_unix(todo.created_at)
                 ],
             )
             .expect("failed to insert todo");
         todo
+    }
+
+    fn update_meta(
+        &mut self,
+        id: TodoId,
+        priority: Priority,
+        due: Option<std::time::SystemTime>,
+    ) -> Option<Todo> {
+        let mut todo = fetch_todo(&self.conn, id)?;
+        todo.priority = priority;
+        todo.due = due;
+        self.conn
+            .execute(
+                "UPDATE todos SET priority = ?1, due = ?2 WHERE id = ?3",
+                params![priority as i32, todo.due.map(to_unix), todo.id.to_string()],
+            )
+            .expect("failed to update meta");
+        Some(todo)
     }
 
     fn toggle(&mut self, id: TodoId) -> Option<Todo> {
@@ -94,28 +119,43 @@ CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   done INTEGER NOT NULL DEFAULT 0,
+  priority INTEGER NOT NULL DEFAULT 2,
+  due INTEGER NULL,
   created_at INTEGER NOT NULL
 );
 "#,
     )
     .context("failed to initialize schema")?;
+
+    ensure_column(
+        conn,
+        "priority",
+        "ALTER TABLE todos ADD COLUMN priority INTEGER NOT NULL DEFAULT 2",
+    )?;
+    ensure_column(conn, "due", "ALTER TABLE todos ADD COLUMN due INTEGER NULL")?;
     Ok(())
 }
 
 fn row_to_todo(row: &Row) -> rusqlite::Result<Todo> {
     let id: String = row.get("id")?;
     let created_at: i64 = row.get("created_at")?;
+    let priority_val: i32 = row.get("priority").unwrap_or(2);
     Ok(Todo {
         id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::nil()),
         title: row.get("title")?,
         done: row.get::<_, i32>("done")? != 0,
+        priority: Priority::from_level(priority_val as u8),
+        due: row
+            .get::<_, Option<i64>>("due")
+            .unwrap_or(None)
+            .map(from_unix),
         created_at: from_unix(created_at),
     })
 }
 
 fn fetch_todo(conn: &Connection, id: TodoId) -> Option<Todo> {
     conn.query_row(
-        "SELECT id, title, done, created_at FROM todos WHERE id = ?1",
+        "SELECT id, title, done, priority, due, created_at FROM todos WHERE id = ?1",
         params![id.to_string()],
         row_to_todo,
     )
@@ -138,6 +178,18 @@ fn default_db_path() -> Result<PathBuf> {
     Ok(base.join("koto").join("todos.sqlite"))
 }
 
+fn ensure_column(conn: &Connection, name: &str, alter_sql: &str) -> Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(todos)")?;
+    let cols = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !cols.iter().any(|c| c == name) {
+        conn.execute(alter_sql, [])
+            .context("failed to add column")?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,7 +199,7 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut repo = SqliteTodoRepo::open(tmp.path()).unwrap();
 
-        let todo = repo.add("hello".to_string());
+        let todo = repo.add("hello".to_string(), Priority::Medium, None);
         assert_eq!(repo.all().len(), 1);
 
         let toggled = repo.toggle(todo.id).unwrap();
