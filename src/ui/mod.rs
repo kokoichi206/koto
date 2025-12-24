@@ -35,14 +35,12 @@ pub fn run<R: TodoRepository>(mut app: App<R>, tick_rate: Duration) -> Result<()
             .checked_sub(last_tick.elapsed())
             .unwrap_or_else(|| Duration::from_secs(0));
 
-        if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    if handle_key(&mut app, key.code)? {
-                        break Ok(());
-                    }
-                }
-            }
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+            && handle_key(&mut app, key.code)?
+        {
+            break Ok(());
         }
 
         if last_tick.elapsed() >= tick_rate {
