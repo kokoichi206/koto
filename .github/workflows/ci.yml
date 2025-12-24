@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: make fmt-check
+
+      - name: Clippy
+        run: make lint
+
+      - name: Tests
+        run: make test

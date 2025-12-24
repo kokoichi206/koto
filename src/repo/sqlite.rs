@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 
 use super::TodoRepository;
@@ -24,8 +24,8 @@ impl SqliteTodoRepo {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create db dir {}", parent.display()))?;
         }
-        let conn =
-            Connection::open(path).with_context(|| format!("failed to open db {}", path.display()))?;
+        let conn = Connection::open(path)
+            .with_context(|| format!("failed to open db {}", path.display()))?;
         init_schema(&conn)?;
         Ok(Self { conn })
     }
@@ -60,9 +60,7 @@ impl TodoRepository for SqliteTodoRepo {
     }
 
     fn toggle(&mut self, id: TodoId) -> Option<Todo> {
-        let Some(mut todo) = fetch_todo(&self.conn, id) else {
-            return None;
-        };
+        let mut todo = fetch_todo(&self.conn, id)?;
         todo.done = !todo.done;
         self.conn
             .execute(
@@ -84,7 +82,7 @@ impl TodoRepository for SqliteTodoRepo {
     fn clear_done(&mut self) -> usize {
         self.conn
             .execute("DELETE FROM todos WHERE done = 1", [])
-            .expect("failed to clear done") as usize
+            .expect("failed to clear done")
     }
 }
 
