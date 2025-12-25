@@ -12,9 +12,13 @@ Named after the Japanese **事** *(koto)* — meaning "thing" or "action".
 cargo run --bin koto            # start with an empty list
 cargo run --bin koto -- --demo  # start with demo tasks
 
-# enable GitHub sync (uses GITHUB_TOKEN)
+# enable GitHub sync (env-first, falls back to `gh auth token`)
 export GITHUB_TOKEN=ghp_xxx
 cargo run --bin koto            # press 'g' in the app to sync review-requested PRs
+
+# or: use GitHub CLI auth (no env var required)
+gh auth login
+cargo run --bin koto
 ```
 
 Key bindings:
@@ -30,6 +34,9 @@ Key bindings:
 
 GitHub sync notes:
 
-- Reads `GITHUB_TOKEN` from environment.
+- Auth resolution order:
+  - `GITHUB_TOKEN` (preferred)
+  - `gh auth token` (requires `gh auth login` beforehand)
+- If you use GitHub Enterprise, set `GH_HOST` (e.g. `github.example.com`) so `gh auth token --hostname $GH_HOST` is used.
 - Press `g` to fetch PRs that explicitly request you as a reviewer; each PR is added as a todo: `owner/repo#num by author: title`.
 - Runs in the background; header shows status while in progress.

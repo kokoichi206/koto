@@ -88,15 +88,11 @@ pub fn now_unix() -> i64 {
 }
 
 fn github_token() -> Result<String> {
-    let raw = std::env::var("GITHUB_TOKEN")
-        .map_err(|_| anyhow!("GitHub token is required (env GITHUB_TOKEN)"))?;
-    let trimmed = raw.trim().to_string();
-    if trimmed.is_empty() {
-        return Err(anyhow!(
-            "GitHub token is empty after trimming; please re-export"
-        ));
-    }
-    Ok(trimmed)
+    repo::github::auth::resolve_github_token_env_then_gh().map_err(|e| {
+        anyhow!(
+            "GitHub token is required (env GITHUB_TOKEN, or `gh auth login` then `gh auth token`): {e}"
+        )
+    })
 }
 
 fn build_github_config() -> Result<Option<GithubConfig>> {
