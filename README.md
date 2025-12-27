@@ -25,7 +25,8 @@ Key bindings:
 
 - `j` / `k` or `↓` / `↑`: move selection
 - `a` or `n`: enter add mode (type then Enter to add)
-- `Enter` / `Space`: toggle completion
+- `Enter`: open link (if available) / otherwise toggle completion
+- `Space`: toggle completion
 - `d` / `Delete`: delete selected
 - `c`: clear all completed
 - `r`: reload

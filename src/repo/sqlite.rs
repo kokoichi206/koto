@@ -35,7 +35,9 @@ impl TodoRepository for SqliteTodoRepo {
     fn all(&self) -> Vec<Todo> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, title, done, priority, due, created_at FROM todos ORDER BY created_at ASC")
+            .prepare(
+                "SELECT id, title, done, priority, due, created_at, external_url, external_key FROM todos ORDER BY created_at ASC",
+            )
             .expect("failed to prepare select");
         let iter = stmt
             .query_map([], row_to_todo)
@@ -48,18 +50,38 @@ impl TodoRepository for SqliteTodoRepo {
         title: String,
         priority: Priority,
         due: Option<std::time::SystemTime>,
+        external_url: Option<String>,
+        external_key: Option<String>,
     ) -> Todo {
-        let todo = Todo::with_meta(title, priority, due);
+        if let Some(ref key) = external_key
+            && let Some(mut existing) = fetch_todo_by_external_key(&self.conn, key)
+        {
+            self.conn
+                .execute(
+                    "UPDATE todos SET title = ?1, external_url = ?2 WHERE id = ?3",
+                    params![title, external_url, existing.id.to_string()],
+                )
+                .expect("failed to update external todo");
+            existing.title = title;
+            existing.external_url = external_url;
+            return existing;
+        }
+
+        let mut todo = Todo::with_meta(title, priority, due);
+        todo.external_url = external_url;
+        todo.external_key = external_key;
         self.conn
             .execute(
-                "INSERT INTO todos (id, title, done, priority, due, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO todos (id, title, done, priority, due, created_at, external_url, external_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     todo.id.to_string(),
-                    todo.title,
+                    &todo.title,
                     todo.done as i32,
                     todo.priority as i32,
                     todo.due.map(to_unix),
-                    to_unix(todo.created_at)
+                    to_unix(todo.created_at),
+                    todo.external_url,
+                    todo.external_key
                 ],
             )
             .expect("failed to insert todo");
@@ -121,7 +143,9 @@ CREATE TABLE IF NOT EXISTS todos (
   done INTEGER NOT NULL DEFAULT 0,
   priority INTEGER NOT NULL DEFAULT 2,
   due INTEGER NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  external_url TEXT NULL,
+  external_key TEXT NULL
 );
 "#,
     )
@@ -133,6 +157,22 @@ CREATE TABLE IF NOT EXISTS todos (
         "ALTER TABLE todos ADD COLUMN priority INTEGER NOT NULL DEFAULT 2",
     )?;
     ensure_column(conn, "due", "ALTER TABLE todos ADD COLUMN due INTEGER NULL")?;
+    ensure_column(
+        conn,
+        "external_url",
+        "ALTER TABLE todos ADD COLUMN external_url TEXT NULL",
+    )?;
+    ensure_column(
+        conn,
+        "external_key",
+        "ALTER TABLE todos ADD COLUMN external_key TEXT NULL",
+    )?;
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_todos_external_key ON todos(external_key)",
+        [],
+    )
+    .context("failed to create external key index")?;
     Ok(())
 }
 
@@ -150,17 +190,29 @@ fn row_to_todo(row: &Row) -> rusqlite::Result<Todo> {
             .unwrap_or(None)
             .map(from_unix),
         created_at: from_unix(created_at),
+        external_url: row.get::<_, Option<String>>("external_url").unwrap_or(None),
+        external_key: row.get::<_, Option<String>>("external_key").unwrap_or(None),
     })
 }
 
 fn fetch_todo(conn: &Connection, id: TodoId) -> Option<Todo> {
     conn.query_row(
-        "SELECT id, title, done, priority, due, created_at FROM todos WHERE id = ?1",
+        "SELECT id, title, done, priority, due, created_at, external_url, external_key FROM todos WHERE id = ?1",
         params![id.to_string()],
         row_to_todo,
     )
     .optional()
     .expect("failed to load todo")
+}
+
+fn fetch_todo_by_external_key(conn: &Connection, external_key: &str) -> Option<Todo> {
+    conn.query_row(
+        "SELECT id, title, done, priority, due, created_at, external_url, external_key FROM todos WHERE external_key = ?1",
+        params![external_key],
+        row_to_todo,
+    )
+    .optional()
+    .expect("failed to load todo by external_key")
 }
 
 fn to_unix(time: SystemTime) -> i64 {
@@ -199,7 +251,7 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut repo = SqliteTodoRepo::open(tmp.path()).unwrap();
 
-        let todo = repo.add("hello".to_string(), Priority::Medium, None);
+        let todo = repo.add("hello".to_string(), Priority::Medium, None, None, None);
         assert_eq!(repo.all().len(), 1);
 
         let toggled = repo.toggle(todo.id).unwrap();

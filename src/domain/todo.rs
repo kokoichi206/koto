@@ -29,6 +29,8 @@ pub struct Todo {
     pub priority: Priority,
     pub due: Option<SystemTime>,
     pub created_at: SystemTime,
+    pub external_url: Option<String>,
+    pub external_key: Option<String>,
 }
 
 impl Todo {
@@ -44,6 +46,8 @@ impl Todo {
             priority,
             due,
             created_at: SystemTime::now(),
+            external_url: None,
+            external_key: None,
         }
     }
 }
