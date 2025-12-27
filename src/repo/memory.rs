@@ -26,8 +26,23 @@ impl TodoRepository for InMemoryTodoRepo {
         title: String,
         priority: Priority,
         due: Option<std::time::SystemTime>,
+        external_url: Option<String>,
+        external_key: Option<String>,
     ) -> Todo {
-        let todo = Todo::with_meta(title, priority, due);
+        if let Some(ref key) = external_key
+            && let Some(existing) = self
+                .items
+                .iter_mut()
+                .find(|t| t.external_key.as_deref() == Some(key.as_str()))
+        {
+            existing.title = title;
+            existing.external_url = external_url;
+            return existing.clone();
+        }
+
+        let mut todo = Todo::with_meta(title, priority, due);
+        todo.external_url = external_url;
+        todo.external_key = external_key;
         self.items.push_back(todo.clone());
         todo
     }

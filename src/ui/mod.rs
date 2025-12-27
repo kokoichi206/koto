@@ -69,7 +69,12 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool> {
                 app.input.clear();
                 app.set_status("Type new task and press Enter");
             }
-            KeyCode::Enter | KeyCode::Char(' ') => app.toggle_selected(),
+            KeyCode::Enter => {
+                if !app.open_selected_link() {
+                    app.toggle_selected();
+                }
+            }
+            KeyCode::Char(' ') => app.toggle_selected(),
             KeyCode::Char('d') | KeyCode::Delete => app.delete_selected(),
             KeyCode::Char('c') => app.clear_done(),
             KeyCode::Char('r') => {
@@ -202,7 +207,7 @@ fn render_table(todos: &[Todo]) -> Table<'_> {
         )
         .block(
             Block::default()
-                .title("Todos (j/k move ; a/n add ; Space/Enter toggle ; P cycle prio ; t set due ; [/ ] shift due ; D clear due ; d delete ; c clear done ; g sync GitHub)")
+                .title("Todos (j/k move ; a/n add ; Enter open link ; Space toggle ; P cycle prio ; t set due ; [/ ] shift due ; D clear due ; d delete ; c clear done ; g sync GitHub)")
                 .borders(Borders::ALL),
         )
         .column_spacing(2)

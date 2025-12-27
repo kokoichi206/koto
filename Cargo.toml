@@ -16,6 +16,7 @@ dirs = "5"
 octocrab = "0.38"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 time = { version = "0.3", features = ["macros", "parsing"] }
+open = "5"
 
 [dev-dependencies]
 tempfile = "3"

@@ -11,6 +11,8 @@ pub trait TodoRepository {
         title: String,
         priority: Priority,
         due: Option<std::time::SystemTime>,
+        external_url: Option<String>,
+        external_key: Option<String>,
     ) -> Todo;
     fn update_meta(
         &mut self,

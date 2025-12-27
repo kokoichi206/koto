@@ -154,7 +154,7 @@ impl App {
                 return;
             }
         };
-        self.repo.add(title, priority, due);
+        self.repo.add(title, priority, due, None, None);
         self.input.clear();
         self.mode = InputMode::Normal;
         self.reload();
@@ -208,6 +208,22 @@ impl App {
         self.status = Some(msg.to_string());
     }
 
+    pub fn open_selected_link(&mut self) -> bool {
+        let Some(url) = self
+            .todos
+            .get(self.selected)
+            .and_then(|t| t.external_url.as_deref())
+        else {
+            return false;
+        };
+
+        match open::that(url) {
+            Ok(_) => self.set_status("Opened link"),
+            Err(e) => self.set_status(&format!("Failed to open link: {e}")),
+        }
+        true
+    }
+
     pub fn start_sync_github(&mut self) {
         let Some(cfg) = self.github.clone() else {
             self.set_status("GitHub sync not configured");
@@ -251,7 +267,15 @@ impl App {
                                     pr.owner, pr.repo, pr.number, pr.author, pr.title
                                 );
                                 let (priority, due) = classify_pr_task(&pr);
-                                self.repo.add(title, priority, due);
+                                let external_key =
+                                    format!("github_pr:{}/{}#{}", pr.owner, pr.repo, pr.number);
+                                self.repo.add(
+                                    title,
+                                    priority,
+                                    due,
+                                    Some(pr.url.clone()),
+                                    Some(external_key),
+                                );
                                 added += 1;
                             }
                         }
