@@ -6,22 +6,42 @@ Named after the Japanese **事** *(koto)* — meaning "thing" or "action".
 
 ![](./docs/imgs/demo.gif)
 
+## Installation
+
+```bash
+# Install from local source
+cargo install --path .
+
+# Install from GitHub
+cargo install --git https://github.com/kokoichi206/koto
+
+# Install from crates.io (once published)
+cargo install koto
+```
+
+After installation, you can run `koto` directly from anywhere.
+
 ## Usage
 
 ```bash
+# If installed via cargo install
+koto            # start with an empty list
+koto --demo     # start with demo tasks
+
+# Or run from source
 cargo run --bin koto            # start with an empty list
 cargo run --bin koto -- --demo  # start with demo tasks
 
 # enable GitHub sync (env-first, falls back to `gh auth token`)
 export GITHUB_TOKEN=ghp_xxx
-cargo run --bin koto            # press 'g' in the app to sync review-requested PRs
+koto            # press 'g' in the app to sync review-requested PRs
 
 # or: use GitHub CLI auth (no env var required)
 gh auth login
-cargo run --bin koto
+koto
 ```
 
-Key bindings:
+### Key bindings
 
 - `j` / `k` or `↓` / `↑`: move selection
 - `a` or `n`: enter add mode (type then Enter to add)
@@ -33,7 +53,7 @@ Key bindings:
 - `g`: sync GitHub PRs where you are requested as a reviewer
 - `q`: quit
 
-GitHub sync notes:
+### GitHub sync notes
 
 - Auth resolution order:
   - `GITHUB_TOKEN` (preferred)
