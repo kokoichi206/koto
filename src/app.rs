@@ -15,6 +15,13 @@ pub enum InputMode {
     EditingDue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelpMode {
+    None,
+    Quick,
+    Full,
+}
+
 pub struct App {
     repo: Box<dyn TodoRepository>,
     pub todos: Vec<Todo>,
@@ -22,6 +29,11 @@ pub struct App {
     pub mode: InputMode,
     pub input: String,
     pub status: Option<String>,
+    pub help_mode: HelpMode,
+    pub help_scroll: u16,
+    pub help_searching: bool,
+    pub help_search_query: String,
+    pub help_search_match: usize,
     pub github: Option<GithubConfig>,
     pub is_syncing: bool,
     pub sync_rx: Option<Receiver<SyncOutcome>>,
@@ -50,12 +62,53 @@ impl App {
             mode: InputMode::Normal,
             input: String::new(),
             status: None,
+            help_mode: HelpMode::None,
+            help_scroll: 0,
+            help_searching: false,
+            help_search_query: String::new(),
+            help_search_match: 0,
             github,
             is_syncing: false,
             sync_rx: None,
         };
         app.sort_todos();
         app
+    }
+
+    pub fn toggle_help_quick(&mut self) {
+        self.help_mode = match self.help_mode {
+            HelpMode::Quick => HelpMode::None,
+            _ => HelpMode::Quick,
+        };
+        if self.help_mode != HelpMode::None {
+            self.help_scroll = 0;
+            self.help_searching = false;
+            self.help_search_query.clear();
+            self.help_search_match = 0;
+            self.status = None;
+        }
+    }
+
+    pub fn toggle_help_full(&mut self) {
+        self.help_mode = match self.help_mode {
+            HelpMode::Full => HelpMode::None,
+            _ => HelpMode::Full,
+        };
+        if self.help_mode != HelpMode::None {
+            self.help_scroll = 0;
+            self.help_searching = false;
+            self.help_search_query.clear();
+            self.help_search_match = 0;
+            self.status = None;
+        }
+    }
+
+    pub fn close_help(&mut self) {
+        self.help_mode = HelpMode::None;
+        self.help_scroll = 0;
+        self.help_searching = false;
+        self.help_search_query.clear();
+        self.help_search_match = 0;
     }
 
     pub fn reload(&mut self) {
